@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8" />
+<title>Time4Trance Tracklist Tool</title>
+<style>
+  body { font-family: sans-serif; max-width: 900px; margin: 40px auto; padding: 0 15px; background: #fff; color: #000; }
+  textarea { width: 100%; height: 180px; margin-top: 10px; font-family: monospace; font-size: 1rem; }
+  select, button { padding: 10px 15px; margin-top: 15px; font-size: 1rem; cursor: pointer; }
+  table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+  th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+  input[type=text] { width: 100%; padding: 6px; box-sizing: border-box; font-size: 1rem; }
+  label { font-weight: bold; }
+</style>
+</head>
+<body>
+
+<h2>Time4Trance Tracklist Tool</h2>
+
+<label for="platform">Kies je Rekordbox exportplatform:</label>
+<select id="platform" aria-label="Selecteer export platform">
+  <option value="mac">macOS</option>
+  <option value="windows">Windows</option>
+</select>
+
+<textarea id="input" placeholder="Plak hier je Rekordbox-export..." aria-label="Rekordbox export invoer"></textarea>
+<br />
+<button id="loadBtn">Tracklist inladen</button>
+
+<div id="tracks-container" aria-live="polite"></div>
+
+<button id="exportBtn" style="display:none;">Exporteer</button>
+
+<h3>Tracklist output (bewerkbaar):</h3>
+<textarea id="output" style="height: 200px;"></textarea>
+
+<script>
+  let tracks = [];
+
+  const loadBtn = document.getElementById('loadBtn');
+  const exportBtn = document.getElementById('exportBtn');
+  const container = document.getElementById('tracks-container');
+  const output = document.getElementById('output');
+
+  function cleanText(text) {
+    return text ? text.trim() : '';
+  }
+
+  loadBtn.addEventListener('click', () => {
+    const platform = document.getElementById('platform').value;
+    const input = document.getElementById('input').value.trim();
+    if (!input) {
+      alert('Plak eerst je Rekordbox-export in het invoerveld.');
+      return;
+    }
+    output.value = '';
+    container.innerHTML = '';
+    exportBtn.style.display = 'none';
+    tracks = [];
+
+    const lines = input.split(/\r?\n/);
+    let headerIndex = -1;
+    for (let i = 0; i < lines.length; i++) {
+      const lineLower = lines[i].toLowerCase();
+      if (lineLower.includes('titel') || lineLower.includes('title')) {
+        headerIndex = i;
+        break;
+      }
+    }
+    if (headerIndex === -1) {
+      alert('Kan de headerregel niet vinden. Zorg dat je de volledige Rekordbox-export plakt, inclusief kolomnamen.');
+      return;
+    }
+
+    for (let i = headerIndex + 1; i < lines.length; i++) {
+      if (!lines[i].trim()) continue;
+      let fields;
+      if (platform === 'mac') {
+        fields = lines[i].split('\t');
+      } else {
+        fields = lines[i].split(/\t| {2,}/);
+      }
+
+      // We pakken relevant velden, afhankelijk van platform
+      let artist = '';
+      let title = '';
+      let label = '';
+
+      if (platform === 'mac') {
+        artist = cleanText(fields[4]);
+        title = cleanText(fields[3]);
+        label = cleanText(fields[6]);
+      } else { // windows
+        artist = cleanText(fields[2]);
+        title = cleanText(fields[3]);
+        label = cleanText(fields[4]);
+      }
+
+      // Fix als artiest leeg is en titel ‘Artiest - Titel’ bevat (bijv. Prodigy)
+      if ((!artist || artist === '') && title.includes(' - ')) {
+        const parts = title.split(' - ');
+        if (parts.length >= 2) {
+          artist = parts[0].trim();
+          title = parts.slice(1).join(' - ').trim();
+        }
+      }
+
+      if (!artist) artist = 'UNKNOWN';
+      if (!title) title = 'UNKNOWN';
+      if (!label) label = '';
+
+      tracks.push({ artist, title, label });
+    }
+
+    // Bouw tabel met invulveld voor ontbrekende labels
+    let html = '<table><thead><tr><th>#</th><th>Artiest</th><th>Titel</th><th>Label</th></tr></thead><tbody>';
+    tracks.forEach((t, i) => {
+      const labelCell = t.label
+        ? `<td>${t.label}</td>`
+        : `<td><input type="text" data-index="${i}" placeholder="Vul label in..."></td>`;
+      html += `<tr>
+        <td>${i + 1}</td>
+        <td>${t.artist}</td>
+        <td>${t.title}</td>
+        ${labelCell}
+      </tr>`;
+    });
+    html += '</tbody></table>';
+    container.innerHTML = html;
+    exportBtn.style.display = 'inline-block';
+
+    // Update tracks bij invullen labels
+    container.querySelectorAll('input[type=text]').forEach(input => {
+      input.addEventListener('input', e => {
+        const idx = e.target.getAttribute('data-index');
+        tracks[idx].label = e.target.value.trim();
+      });
+    });
+  });
+
+  exportBtn.addEventListener('click', () => {
+    // Maak output bewerkbaar met textarea
+    const formatted = tracks.map((t, i) => {
+      const label = t.label.trim() ? t.label : 'UNKNOWN';
+      return `${i + 1}. ${t.artist} - ${t.title} [${label}]`;
+    });
+    output.value = formatted.join('\n');
+  });
+</script>
+
+</body>
+</html>
