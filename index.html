@@ -2,29 +2,22 @@
 <html lang="nl">
 <head>
 <meta charset="UTF-8" />
-<title>Time4Trance Tracklist Tool</title>
+<title>Time4Trance Tracklist Tool - Dynamische Kolommen</title>
 <style>
   body { font-family: sans-serif; max-width: 900px; margin: 40px auto; padding: 0 15px; }
   textarea { width: 100%; height: 200px; margin-top: 10px; font-family: monospace; }
-  select, button { padding: 10px 15px; margin-top: 15px; font-size: 1rem; cursor: pointer; }
+  select, button { padding: 10px 15px; margin-top: 15px; font-size: 1rem; }
   table { width: 100%; border-collapse: collapse; margin-top: 20px; }
   th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
   input[type=text] { width: 100%; padding: 6px; box-sizing: border-box; }
-  textarea#output { width: 100%; height: 200px; margin-top: 15px; font-family: monospace; }
+  pre { background: #f7f7f7; border: 1px solid #ccc; padding: 15px; white-space: pre-wrap; min-height: 150px; margin-top: 20px; }
 </style>
 </head>
 <body>
 
 <h2>Time4Trance Tracklist Tool</h2>
 
-<label for="platform">Kies je Rekordbox exportplatform:</label>
-<select id="platform">
-  <option value="mac">macOS</option>
-  <option value="windows">Windows</option>
-  <option value="auto">Auto-detect</option>
-</select>
-
-<textarea id="input" placeholder="Plak hier je Rekordbox-export of tracklist..."></textarea>
+<textarea id="input" placeholder="Plak hier je Rekordbox-export..."></textarea>
 <br />
 <button id="loadBtn">Tracklist inladen</button>
 
@@ -33,7 +26,7 @@
 <button id="exportBtn" style="display:none;">Exporteer</button>
 
 <h3>Tracklist output:</h3>
-<textarea id="output" placeholder="Hier verschijnt de export..."></textarea>
+<pre id="output"></pre>
 
 <script>
   let tracks = [];
@@ -43,101 +36,95 @@
   const container = document.getElementById('tracks-container');
   const output = document.getElementById('output');
 
+  function findColumnIndices(headerFields) {
+    const lowered = headerFields.map(h => h.toLowerCase());
+    return {
+      artistIdx: lowered.findIndex(h => h.includes('artist')),
+      titleIdx: lowered.findIndex(h => h.includes('titel') || h.includes('title')),
+      labelIdx: lowered.findIndex(h => h.includes('label')),
+    };
+  }
+
   loadBtn.addEventListener('click', () => {
-    const platform = document.getElementById('platform').value;
     const input = document.getElementById('input').value.trim();
     if (!input) {
-      alert('Plak eerst je tracklist of Rekordbox-export.');
+      alert('Plak eerst je Rekordbox-export in het invoerveld.');
       return;
     }
-    output.value = '';
+    output.textContent = '';
     container.innerHTML = '';
     exportBtn.style.display = 'none';
     tracks = [];
 
-    const lines = input.split(/\r?\n/).filter(l => l.trim() !== '');
-    let headerIndex = -1;
-
-    // Zoek headerregel
+    const lines = input.split(/\r?\n/);
+    let headerLine = -1;
     for (let i = 0; i < lines.length; i++) {
+      // header: zoek rij met 'titel' of 'title' en 'artist'
       const low = lines[i].toLowerCase();
-      if (low.includes('titel') || low.includes('title') || low.includes('track title')) {
-        headerIndex = i;
+      if (low.includes('titel') && low.includes('artist') || low.includes('title') && low.includes('artist')) {
+        headerLine = i;
         break;
       }
     }
-
-    // Als geen header, maar eerste regel begint met "1" -> headerIndex = 0
-    if (headerIndex === -1 && /^\s*#?\s*1[\s\t]/.test(lines[0])) {
-      headerIndex = 0;
-    }
-
-    if (headerIndex === -1) {
-      alert('Geen headerregel gevonden. Zorg dat je lijst begint met kolomnamen of een nummer.');
+    if (headerLine === -1) {
+      alert('Headerregel met kolomnamen niet gevonden. Zorg dat je de volledige Rekordbox-export plakt.');
       return;
     }
 
-    for (let i = headerIndex + 1; i < lines.length; i++) {
-      let cleanLine = lines[i].replace(/\u00A0/g, ' ').trim(); // vervang rare spaties
-      let fields = cleanLine.split(/\t| {2,}/).map(f => f.trim());
+    // Header parsen op tabs of spaties
+    const delimiter = lines[headerLine].includes('\t') ? '\t' : / {2,}/;
+    const headers = lines[headerLine].split(delimiter).map(h => h.trim());
+    const { artistIdx, titleIdx, labelIdx } = findColumnIndices(headers);
 
-      // Detectie: als eerste veld nummer is
-      if (/^\d+$/.test(fields[0])) {
-        fields.shift(); // verwijder tracknummer
-      }
+    if (artistIdx === -1 || titleIdx === -1) {
+      alert('Kon kolommen Artist en Title niet correct vinden in header.');
+      return;
+    }
 
-      let artist = '';
-      let title = '';
-      let label = '';
+    for (let i = headerLine + 1; i < lines.length; i++) {
+      if (!lines[i].trim()) continue;
+      const fields = lines[i].split(delimiter).map(f => f.trim());
+      if (fields.length <= Math.max(artistIdx, titleIdx)) continue;
 
-      if (fields.length >= 3) {
-        artist = fields[0] || '';
-        title = fields[1] || '';
-        label = fields[2] || '';
-      }
-      else if (fields.length === 2) {
-        artist = fields[0];
-        title = fields[1];
-      }
-      else if (fields.length === 1) {
-        // laatste fallback: probeer split op ' - '
-        if (fields[0].includes(' - ')) {
-          const parts = fields[0].split(' - ');
-          artist = parts[0];
-          title = parts.slice(1).join(' - ');
-        } else {
-          title = fields[0];
-        }
+      let artist = fields[artistIdx] || '';
+      let title = fields[titleIdx] || '';
+      let label = (labelIdx !== -1 && fields[labelIdx]) ? fields[labelIdx] : '';
+
+      // fallback split: als artist leeg of UNKNOWN en titel bevat ' - '
+      if ((!artist || artist.toUpperCase() === 'UNKNOWN' || artist === '') && title.includes(' - ')) {
+        const splitPos = title.indexOf(' - ');
+        artist = title.substring(0, splitPos).trim() || 'UNKNOWN';
+        title = title.substring(splitPos + 3).trim() || 'UNKNOWN';
       }
 
       if (!artist) artist = 'UNKNOWN';
       if (!title) title = 'UNKNOWN';
+      if (!label) label = 'UNKNOWN';
 
-      tracks.push({ artist, title, label: label || '' });
+      tracks.push({ artist, title, label });
     }
 
-    // Bouw tabel
+    // Tabel maken met bewerkbare velden
     let html = '<table><thead><tr><th>#</th><th>Artiest</th><th>Titel</th><th>Label</th></tr></thead><tbody>';
     tracks.forEach((t, i) => {
-      const labelCell = t.label
-        ? `<td>${t.label}</td>`
-        : `<td><input type="text" data-index="${i}" placeholder="Vul label in..."></td>`;
       html += `<tr>
         <td>${i + 1}</td>
-        <td>${t.artist}</td>
-        <td>${t.title}</td>
-        ${labelCell}
+        <td><input type="text" data-field="artist" data-index="${i}" value="${t.artist}"></td>
+        <td><input type="text" data-field="title" data-index="${i}" value="${t.title}"></td>
+        <td><input type="text" data-field="label" data-index="${i}" value="${t.label}"></td>
       </tr>`;
     });
     html += '</tbody></table>';
 
     container.innerHTML = html;
     exportBtn.style.display = 'inline-block';
+    output.textContent = '';
 
     container.querySelectorAll('input[type=text]').forEach(input => {
       input.addEventListener('input', e => {
         const idx = e.target.getAttribute('data-index');
-        tracks[idx].label = e.target.value.trim();
+        const field = e.target.getAttribute('data-field');
+        tracks[idx][field] = e.target.value.trim();
       });
     });
   });
@@ -147,7 +134,7 @@
       const label = t.label.trim() ? t.label : 'UNKNOWN';
       return `${i + 1}. ${t.artist} - ${t.title} [${label}]`;
     });
-    output.value = formatted.join('\n');
+    output.textContent = formatted.join('\n');
   });
 </script>
 
