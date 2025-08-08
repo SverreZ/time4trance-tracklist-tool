@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<title>Time4Trance Tracklist Tool</title>
+<style>
+    body {
+        font-family: Arial, sans-serif;
+        background-color: #f9f9f9;
+        color: #333;
+        margin: 0;
+        padding: 20px;
+    }
+    h1 {
+        color: #333;
+        margin-bottom: 10px;
+    }
+    textarea {
+        width: 100%;
+        height: 150px;
+        padding: 10px;
+        border: 1px solid #ccc;
+        margin-bottom: 10px;
+        font-family: monospace;
+        font-size: 14px;
+        background-color: #fff;
+    }
+    button {
+        background-color: #4CAF50;
+        color: white;
+        border: none;
+        padding: 8px 12px;
+        cursor: pointer;
+        margin-bottom: 10px;
+        font-size: 14px;
+    }
+    button:hover {
+        background-color: #45a049;
+    }
+    table {
+        border-collapse: collapse;
+        width: 100%;
+        margin-top: 10px;
+        background-color: #fff;
+    }
+    th, td {
+        border: 1px solid #ccc;
+        padding: 6px;
+        text-align: left;
+    }
+    th {
+        background-color: #eee;
+    }
+    input[type="text"] {
+        width: 95%;
+        padding: 4px;
+        border: 1px solid #ccc;
+        background-color: #fff;
+        color: #333;
+    }
+    pre {
+        background-color: #f4f4f4;
+        color: #000;
+        padding: 10px;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        border: 1px solid #ccc;
+    }
+</style>
+</head>
+<body>
+
+<h1>Time4Trance Tracklist Tool</h1>
+<textarea id="input" placeholder="Plak hier je Rekordbox-export..."></textarea><br>
+<button id="loadBtn">Tracklist inladen</button>
+<button id="exportBtn" style="display:none;">Exporteren</button>
+<div id="container"></div>
+<pre id="output"></pre>
+
+<script>
+let tracks = [];
+
+function detectDelimiter(line) {
+    const candidates = ['\t', ';', ','];
+    let best = '\t';
+    let maxCount = 0;
+    candidates.forEach(delim => {
+        const count = line.split(delim).length;
+        if (count > maxCount) {
+            maxCount = count;
+            best = delim;
+        }
+    });
+    return best;
+}
+
+function findColumnIndices(headerFields) {
+    const lowered = headerFields.map(h => h.toLowerCase());
+    return {
+        artistIdx: lowered.findIndex(h => h.includes('artist') || h.includes('artiest')),
+        titleIdx: lowered.findIndex(h => h.includes('titel') || h.includes('title') || h.includes('track')),
+        labelIdx: lowered.findIndex(h => h.includes('label')),
+    };
+}
+
+document.getElementById('loadBtn').addEventListener('click', () => {
+    const input = document.getElementById('input').value.trim();
+    const container = document.getElementById('container');
+    const output = document.getElementById('output');
+    const exportBtn = document.getElementById('exportBtn');
+
+    if (!input) {
+        alert('Plak eerst je export in het invoerveld.');
+        return;
+    }
+    output.textContent = '';
+    container.innerHTML = '';
+    exportBtn.style.display = 'none';
+    tracks = [];
+
+    const lines = input.split(/\r?\n/);
+
+    let headerLine = -1;
+    for (let i = 0; i < lines.length; i++) {
+        const low = lines[i].toLowerCase();
+        if (
+            (low.includes('titel') || low.includes('title') || low.includes('track')) &&
+            (low.includes('artist') || low.includes('artiest'))
+        ) {
+            headerLine = i;
+            break;
+        }
+    }
+    if (headerLine === -1) {
+        alert('Headerregel met kolomnamen niet gevonden.');
+        return;
+    }
+
+    const delimiter = detectDelimiter(lines[headerLine]);
+    const headers = lines[headerLine].split(delimiter).map(h => h.trim());
+    const { artistIdx, titleIdx, labelIdx } = findColumnIndices(headers);
+
+    if (artistIdx === -1 || titleIdx === -1) {
+        alert('Kon kolommen Artist/Artiest en Title/Titel niet vinden.');
+        return;
+    }
+
+    for (let i = headerLine + 1; i < lines.length; i++) {
+        if (!lines[i].trim()) continue;
+        const fields = lines[i].split(delimiter).map(f => f.trim());
+        if (fields.length <= Math.max(artistIdx, titleIdx)) continue;
+
+        let artist = fields[artistIdx] || '';
+        let title = fields[titleIdx] || '';
+        let label = (labelIdx !== -1 && fields[labelIdx]) ? fields[labelIdx] : '';
+
+        if ((!artist || artist.toUpperCase() === 'UNKNOWN') && title.includes(' - ')) {
+            const splitPos = title.indexOf(' - ');
+            artist = title.substring(0, splitPos).trim() || 'UNKNOWN';
+            title = title.substring(splitPos + 3).trim() || 'UNKNOWN';
+        }
+
+        if (!artist) artist = 'UNKNOWN';
+        if (!title) title = 'UNKNOWN';
+        if (!label) label = 'UNKNOWN';
+
+        tracks.push({ artist, title, label });
+    }
+
+    let html = '<table><thead><tr><th>#</th><th>Artiest</th><th>Titel</th><th>Label</th></tr></thead><tbody>';
+    tracks.forEach((t, i) => {
+        html += `<tr>
+            <td>${i + 1}</td>
+            <td><input type="text" data-field="artist" data-index="${i}" value="${t.artist}"></td>
+            <td><input type="text" data-field="title" data-index="${i}" value="${t.title}"></td>
+            <td><input type="text" data-field="label" data-index="${i}" value="${t.label}"></td>
+        </tr>`;
+    });
+    html += '</tbody></table>';
+
+    container.innerHTML = html;
+    exportBtn.style.display = 'inline-block';
+
+    container.querySelectorAll('input[type=text]').forEach(input => {
+        input.addEventListener('input', e => {
+            const idx = e.target.getAttribute('data-index');
+            const field = e.target.getAttribute('data-field');
+            tracks[idx][field] = e.target.value.trim();
+        });
+    });
+});
+
+document.getElementById('exportBtn').addEventListener('click', () => {
+    const output = document.getElementById('output');
+    let text = '';
+    tracks.forEach((t, i) => {
+        text += `${i + 1}. ${t.artist} - ${t.title} [${t.label}]\n`;
+    });
+    output.textContent = text;
+});
+</script>
+
+</body>
+</html>
